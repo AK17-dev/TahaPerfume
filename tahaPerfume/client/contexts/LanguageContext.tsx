@@ -42,7 +42,7 @@ const translations: Translations = {
     en: "Each fragrance tells a unique story",
     ar: "كل عطر يحكي قصة فريدة",
   },
-  "products.contact": { en: "Contact for Price", ar: "تواصل للسعر" },
+  "products.contact": { en: "Contact for more info", ar:" لمزيد من المعلومات" },
 
   // About Section
   "about.title": { en: "About TahaPerfumetp", ar: "عن طه بيرفيوم تي بي" },
