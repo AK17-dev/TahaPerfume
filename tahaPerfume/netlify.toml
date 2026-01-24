@@ -1,7 +1,8 @@
 [build]
+  base = "tahaPerfume"
   command = "npm run build:client"
-  functions = "netlify/functions"
   publish = "dist/spa"
+  functions = "netlify/functions"
 
 [functions]
   external_node_modules = ["express"]
