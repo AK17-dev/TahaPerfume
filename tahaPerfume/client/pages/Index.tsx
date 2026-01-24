@@ -231,27 +231,8 @@ const Index = () => {
               </div>
             </div>
 
-            <div className="animate-slide-in-right">
-              <div className="relative">
-                <div className="bg-luxury-gold/20 rounded-3xl p-8 backdrop-blur-sm">
-                  <div className="flex items-center justify-center h-64 bg-luxury-white rounded-2xl shadow-lg">
-                    <div className="text-center">
-                      <div className="w-16 h-16 bg-luxury-gold rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Heart className="text-luxury-white" size={32} />
-                      </div>
-                      <p
-                        className={`text-luxury-black font-medium ${isRTL ? "font-arabic" : "font-sans"
-                          }`}
-                      >
-                        {t("footer.luxury")}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                <div className="absolute -top-4 -right-4 w-24 h-24 bg-luxury-beige rounded-full blur-xl opacity-50"></div>
-                <div className="absolute -bottom-4 -left-4 w-32 h-32 bg-luxury-gold/20 rounded-full blur-2xl"></div>
-              </div>
-            </div>
+            {/* Card removed */}
+
           </div>
         </div>
       </section>
