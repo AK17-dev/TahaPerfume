@@ -12,7 +12,7 @@ import { Product, isSupabaseConfigured } from "../lib/supabase";
 import ImageUpload from "../components/ImageUpload";
 import SupabaseStatus from "../components/SupabaseStatus";
 import StorageTest from "../components/StorageTest";
-import { StorageChecker } from "../utils/storageChecker";
+
 import {
   Plus,
   Edit,
@@ -30,7 +30,7 @@ interface ProductFormData {
   name_ar: string;
   description_en: string;
   description_ar: string;
-  price: number;
+  price: string; // ✅ keep as string for perfect UX
 }
 
 const AdminPanel = () => {
@@ -38,36 +38,25 @@ const AdminPanel = () => {
   const { isRTL } = useLanguage();
   const navigate = useNavigate();
 
-  // ✅ For NEW product image (before product exists)
+  // NEW product image before product exists
   const [newProductImage, setNewProductImage] = useState<File | null>(null);
+  const [newProductPreviewUrl, setNewProductPreviewUrl] = useState<string | null>(
+    null,
+  );
 
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploadingImageFor, setUploadingImageFor] = useState<string | null>(
-    null,
-  );
-
-  const [storageStatus, setStorageStatus] = useState<{
-    checked: boolean;
-    bucketExists: boolean;
-    canUpload: boolean;
-    errors: string[];
-  }>({
-    checked: false,
-    bucketExists: false,
-    canUpload: false,
-    errors: [],
-  });
+  const [uploadingImageFor, setUploadingImageFor] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<ProductFormData>({
     name_en: "",
     name_ar: "",
     description_en: "",
     description_ar: "",
-    price: 0,
+    price: "", // ✅ empty is allowed while typing
   });
 
   useEffect(() => {
@@ -83,6 +72,17 @@ const AdminPanel = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
+  // ✅ Keep preview URL in sync + avoid memory leaks
+  useEffect(() => {
+    if (!newProductImage) {
+      setNewProductPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(newProductImage);
+    setNewProductPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [newProductImage]);
+
   const loadProducts = async () => {
     setIsLoadingProducts(true);
     const allProducts = await ProductService.getAllProducts(true);
@@ -97,9 +97,9 @@ const AdminPanel = () => {
       name_ar: "",
       description_en: "",
       description_ar: "",
-      price: 0,
+      price: "", // ✅ reset to empty
     });
-    setNewProductImage(null); // ✅ important
+    setNewProductImage(null);
     setShowForm(true);
   };
 
@@ -109,10 +109,10 @@ const AdminPanel = () => {
       name_ar: "",
       description_en: "",
       description_ar: "",
-      price: 0,
+      price: "", // ✅ reset to empty
     });
     setEditingProduct(null);
-    setNewProductImage(null); // ✅ important
+    setNewProductImage(null);
     setShowForm(false);
   };
 
@@ -122,10 +122,16 @@ const AdminPanel = () => {
 
     try {
       if (editingProduct) {
+        // ✅ DO NOT spread formData (because price is string)
         const updateData: UpdateProductData = {
           id: editingProduct.id,
-          ...formData,
+          name_en: formData.name_en,
+          name_ar: formData.name_ar,
+          description_en: formData.description_en,
+          description_ar: formData.description_ar,
+          price: Number(formData.price || 0),
         };
+
         const result = await ProductService.updateProduct(updateData);
 
         if (result.success) {
@@ -143,8 +149,15 @@ const AdminPanel = () => {
           alert(result.error || "Failed to update product");
         }
       } else {
-        // ✅ Create new product first
-        const createData: CreateProductData = formData;
+        // ✅ Create product first and use returned id (important!)
+        const createData: CreateProductData = {
+          name_en: formData.name_en,
+          name_ar: formData.name_ar,
+          description_en: formData.description_en,
+          description_ar: formData.description_ar,
+          price: Number(formData.price || 0),
+        };
+
         const result = await ProductService.createProduct(createData);
 
         if (!result.success || !result.data?.id) {
@@ -154,12 +167,11 @@ const AdminPanel = () => {
 
         const newProductId = result.data.id;
 
-        // ✅ If admin selected an image, upload it using the REAL new product id
+        // ✅ If image selected, upload it to THIS product id
         if (newProductImage) {
           await handleImageUpload(newProductImage, newProductId);
         }
 
-        // ✅ Load products once after everything
         await loadProducts();
         closeForm();
 
@@ -186,11 +198,9 @@ const AdminPanel = () => {
       name_ar: product.name_ar,
       description_en: product.description_en,
       description_ar: product.description_ar,
-      price: product.price,
+      price: String(product.price ?? ""), // ✅ number -> string
     });
     setShowForm(true);
-
-    // ✅ Clear any pending new-product image
     setNewProductImage(null);
   };
 
@@ -212,10 +222,12 @@ const AdminPanel = () => {
   };
 
   const handleToggleActive = async (product: Product) => {
+    // ✅ FIX: must use product.id (NOT editingProduct.id)
     const updateData: UpdateProductData = {
       id: product.id,
       is_active: !product.is_active,
     };
+
     const result = await ProductService.updateProduct(updateData);
     if (result.success) {
       await loadProducts();
@@ -227,69 +239,54 @@ const AdminPanel = () => {
   const handleImageUpload = async (file: File, productId: string) => {
     setUploadingImageFor(productId);
 
-    // Check storage setup on first upload if using Supabase
-    if (isSupabaseConfigured && !storageStatus.checked) {
-      console.log("🔍 Checking storage setup...");
-      const checkResult = await StorageChecker.checkStorageSetup();
-      setStorageStatus({
-        checked: true,
-        bucketExists: checkResult.bucketExists,
-        canUpload: checkResult.canUpload,
-        errors: checkResult.errors,
-      });
+    try {
+      const result = await ProductService.uploadProductImage(file, productId);
 
-      if (!checkResult.canUpload && checkResult.errors.length > 0) {
-        alert(
-          `Storage setup issue:\n\n${checkResult.errors.join(
-            "\n",
-          )}\n\nPlease set up storage bucket and policies in Supabase Dashboard.`,
-        );
-        setUploadingImageFor(null);
-        return;
+      if (result.success) {
+        await loadProducts();
+        return true;
       }
-    }
 
-    const result = await ProductService.uploadProductImage(file, productId);
-
-    if (result.success) {
-      // ✅ optional: no need to loadProducts here, caller can load once
-      await loadProducts();
-    } else {
       const errorMsg = result.error || "Failed to upload image";
       console.error("Image upload failed:", errorMsg);
 
-      if (errorMsg.includes("Bucket not found")) {
+      if (
+        errorMsg.toLowerCase().includes("bucket") &&
+        errorMsg.toLowerCase().includes("not")
+      ) {
         alert(
-          `❌ Storage Error: Product images bucket not found.\n\n🔧 To fix this:\n${StorageChecker.getSetupInstructions().join(
-            "\n",
-          )}`,
+          `❌ Storage Error:\n${errorMsg}\n\n✅ Check:\n- Bucket name is exactly: product-images\n- Bucket is PUBLIC\n- Policies allow anon INSERT/UPDATE/DELETE`,
         );
-      } else if (errorMsg.includes("row-level security")) {
+      } else if (errorMsg.toLowerCase().includes("row-level security")) {
         alert(
-          `❌ Permission Error: Storage policies not configured.\n\n🔧 To fix this:\n1. Go to Supabase Dashboard → Storage → Policies\n2. Create policies for 'product-images' bucket\n3. Allow public SELECT and authenticated INSERT/UPDATE/DELETE`,
+          `❌ Permission Error:\n${errorMsg}\n\n✅ Fix in Supabase:\nStorage → Policies\nAllow anon INSERT/UPDATE/DELETE and public SELECT`,
         );
       } else {
-        alert(`❌ Upload Error: ${errorMsg}`);
+        alert(`❌ Upload Error:\n${errorMsg}`);
       }
-    }
 
-    setUploadingImageFor(null);
+      return false;
+    } finally {
+      setUploadingImageFor(null);
+    }
   };
 
   const handleImageDelete = async (product: Product) => {
-    if (product.image_url) {
-      setUploadingImageFor(product.id);
-      const result = await ProductService.deleteProductImage(
-        product.image_url,
-        product.id,
-      );
-      if (result.success) {
-        await loadProducts();
-      } else {
-        alert(result.error || "Failed to delete image");
-      }
-      setUploadingImageFor(null);
+    if (!product.image_url) return;
+
+    setUploadingImageFor(product.id);
+    const result = await ProductService.deleteProductImage(
+      product.image_url,
+      product.id,
+    );
+
+    if (result.success) {
+      await loadProducts();
+    } else {
+      alert(result.error || "Failed to delete image");
     }
+
+    setUploadingImageFor(null);
   };
 
   if (loading || !isAdmin) {
@@ -307,7 +304,6 @@ const AdminPanel = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-luxury-white via-luxury-beige-light to-luxury-white">
-      {/* Header */}
       <header className="bg-luxury-white shadow-sm border-b border-luxury-beige">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -324,6 +320,7 @@ const AdminPanel = () => {
                 </span>
               )}
             </div>
+
             <div className="flex items-center space-x-4 rtl:space-x-reverse">
               <a
                 href="/"
@@ -332,6 +329,7 @@ const AdminPanel = () => {
               >
                 {isRTL ? "عرض الموقع" : "View Site"}
               </a>
+
               <button
                 onClick={logout}
                 className="flex items-center space-x-2 rtl:space-x-reverse text-luxury-black hover:text-luxury-gold transition-colors duration-300"
@@ -346,12 +344,10 @@ const AdminPanel = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <SupabaseStatus />
         {isSupabaseConfigured && <StorageTest />}
 
-        {/* Action Bar */}
         <div className="flex items-center justify-between mb-6">
           <h2
             className={`text-xl font-semibold text-luxury-black ${isRTL ? "font-arabic" : "font-english"
@@ -359,6 +355,7 @@ const AdminPanel = () => {
           >
             {isRTL ? "إدارة المنتجات" : "Product Management"}
           </h2>
+
           <button
             onClick={() => {
               if (showForm) closeForm();
@@ -379,7 +376,6 @@ const AdminPanel = () => {
           </button>
         </div>
 
-        {/* Product Form */}
         {showForm && (
           <div className="bg-luxury-white rounded-lg shadow-sm p-6 border border-luxury-beige mb-6">
             <h3
@@ -396,7 +392,6 @@ const AdminPanel = () => {
             </h3>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* names */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label
@@ -436,7 +431,6 @@ const AdminPanel = () => {
                 </div>
               </div>
 
-              {/* descriptions */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label
@@ -449,10 +443,7 @@ const AdminPanel = () => {
                     required
                     value={formData.description_en}
                     onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        description_en: e.target.value,
-                      })
+                      setFormData({ ...formData, description_en: e.target.value })
                     }
                     className="w-full px-3 py-2 border border-luxury-beige rounded-lg focus:outline-none focus:ring-2 focus:ring-luxury-gold focus:border-transparent"
                     rows={3}
@@ -470,10 +461,7 @@ const AdminPanel = () => {
                     required
                     value={formData.description_ar}
                     onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        description_ar: e.target.value,
-                      })
+                      setFormData({ ...formData, description_ar: e.target.value })
                     }
                     className="w-full px-3 py-2 border border-luxury-beige rounded-lg focus:outline-none focus:ring-2 focus:ring-luxury-gold focus:border-transparent font-arabic"
                     rows={3}
@@ -482,7 +470,6 @@ const AdminPanel = () => {
                 </div>
               </div>
 
-              {/* price */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label
@@ -498,17 +485,13 @@ const AdminPanel = () => {
                     required
                     value={formData.price}
                     onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        price: parseFloat(e.target.value) || 0,
-                      })
+                      setFormData({ ...formData, price: e.target.value })
                     }
                     className="w-full px-3 py-2 border border-luxury-beige rounded-lg focus:outline-none focus:ring-2 focus:ring-luxury-gold focus:border-transparent"
                   />
                 </div>
               </div>
 
-              {/* NEW: image picker inside "Add New Product" */}
               {!editingProduct && (
                 <div className="mt-2">
                   <label
@@ -519,12 +502,8 @@ const AdminPanel = () => {
                   </label>
 
                   <ImageUpload
-                    onImageUpload={async (file) => {
-                      setNewProductImage(file); // ✅ store only, upload after create
-                    }}
-                    currentImageUrl={
-                      newProductImage ? URL.createObjectURL(newProductImage) : null
-                    }
+                    onImageUpload={async (file) => setNewProductImage(file)}
+                    currentImageUrl={newProductPreviewUrl}
                     onImageDelete={
                       newProductImage ? async () => setNewProductImage(null) : undefined
                     }
@@ -533,7 +512,6 @@ const AdminPanel = () => {
                 </div>
               )}
 
-              {/* actions */}
               <div className="flex justify-end space-x-4 rtl:space-x-reverse">
                 <button
                   type="button"
@@ -542,6 +520,7 @@ const AdminPanel = () => {
                 >
                   {isRTL ? "إلغاء" : "Cancel"}
                 </button>
+
                 <button
                   type="submit"
                   disabled={isSubmitting}
@@ -567,7 +546,6 @@ const AdminPanel = () => {
           </div>
         )}
 
-        {/* Products Grid */}
         <div className="bg-luxury-white rounded-lg shadow-sm border border-luxury-beige">
           <div className="p-6">
             {isLoadingProducts ? (
@@ -604,6 +582,7 @@ const AdminPanel = () => {
                           <Package className="text-luxury-black/40" size={48} />
                         </div>
                       )}
+
                       <div className="absolute top-2 right-2 flex space-x-2">
                         <button
                           onClick={() => handleToggleActive(product)}
@@ -630,7 +609,9 @@ const AdminPanel = () => {
 
                       <div className="mb-4">
                         <ImageUpload
-                          onImageUpload={(file) => handleImageUpload(file, product.id)}
+                          onImageUpload={async (file) => {
+                            await handleImageUpload(file, product.id);
+                          }}
                           currentImageUrl={product.image_url}
                           onImageDelete={() => handleImageDelete(product)}
                           isUploading={uploadingImageFor === product.id}
